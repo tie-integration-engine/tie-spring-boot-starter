@@ -35,6 +35,12 @@
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-autoconfigure</artifactId>
         </dependency>
+        <!-- field expressions: the auto-configuration registers JexlExpressionEngine when it is on the classpath -->
+        <dependency>
+            <groupId>io.github.tie-integration-engine</groupId>
+            <artifactId>tie-jexl</artifactId>
+            <optional>true</optional>
+        </dependency>
 
         <dependency>
             <groupId>org.springframework.boot</groupId>
