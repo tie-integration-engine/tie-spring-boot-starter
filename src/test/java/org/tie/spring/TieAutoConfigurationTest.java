@@ -19,6 +19,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.springframework.boot.autoconfigure.AutoConfigurations;
+import org.springframework.boot.test.context.FilteredClassLoader;
 import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -32,6 +33,8 @@ import org.tie.config.IntegrationDefinition;
 import org.tie.config.Layout;
 import org.tie.config.LocalDirectoryChannel;
 import org.tie.config.SftpChannel;
+import org.tie.jexl.JexlExpressionEngine;
+import org.tie.spi.ExpressionEngine;
 import org.tie.spi.FieldTransformer;
 import org.tie.spi.Outcome;
 import org.tie.spi.SecretProvider;
@@ -163,5 +166,43 @@ class TieAutoConfigurationTest {
             assertThat(metadata).isNotNull();
             assertThat(new String(metadata.readAllBytes(), StandardCharsets.UTF_8)).contains("\"tie.working-directory\"");
         }
+    }
+
+    /** An import whose only field has an expression: it validates only if Tie has an ExpressionEngine. */
+    private static IntegrationDefinition withExpression() {
+        return IntegrationDefinition.importing("calc")
+                .inputChannel(LocalDirectoryChannel.of(Path.of("/in")))
+                .layout(Layout.builder("alta").fileNamePattern("alta_{timestamp:yyyyMMdd}").allowedFormats(FileFormat.CSV)
+                        .field(FieldDefinition.builder("total").inInput(false).expression("1 + 1")))
+                .build();
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    static class OwnExpressionEngine {
+        static final ExpressionEngine ENGINE = source -> context -> "own";
+
+        @Bean
+        ExpressionEngine myEngine() {
+            return ENGINE;
+        }
+    }
+
+    @Test
+    @DisplayName("AC-311 with tie-jexl on the classpath the Tie bean gets a JexlExpressionEngine; without it, none")
+    void jexlExpressionEngine() {
+        runner.run(context -> {
+            assertThat(context).hasSingleBean(ExpressionEngine.class);
+            assertThat(context.getBean(ExpressionEngine.class)).isInstanceOf(JexlExpressionEngine.class);
+            assertThat(context.getBean(Tie.class).validate(withExpression())).isEmpty();
+        });
+        runner.withClassLoader(new FilteredClassLoader(JexlExpressionEngine.class)).run(context -> {
+            assertThat(context).doesNotHaveBean(ExpressionEngine.class);
+            assertThat(context.getBean(Tie.class).validate(withExpression()))
+                    .singleElement().asString().endsWith("expression requires an ExpressionEngine");
+        });
+        runner.withUserConfiguration(OwnExpressionEngine.class).run(context -> {
+            assertThat(context.getBean(ExpressionEngine.class)).isSameAs(OwnExpressionEngine.ENGINE);
+            assertThat(context.getBean(Tie.class).validate(withExpression())).isEmpty();
+        });
     }
 }
